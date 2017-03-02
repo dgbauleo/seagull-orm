@@ -23,7 +23,7 @@
 			require_once 'Seagull_ORM.cache.php';
 		}
 
-		public static function create_cache() {
+		private static function create_cache() {
 			$pdo = &Core::$pdo;
 
 			// Getting tables from database
@@ -62,9 +62,17 @@
 			fwrite($file_handle, '<?php ' . $classes . ' ?>');
 			fclose($file_handle);
 		}
+		
+		/*
+		 * Private non-static methods, used mostly for reflection
+		 */
+		private function getTable() {
+			$r = new \ReflectionClass($this);
+			return $r->getShortName();
+		}
 
 		/*
-		 * Non-static methods, used by the table classes
+		 * Non-static methods, used by the ORM classes
 		 */
 
 		 // Prevents dynamic property creation
@@ -77,13 +85,10 @@
 
 		// Class constructor fetches all data using column and value provided
 		public function __construct($column = null, $value = null) {
-			$class = explode('\\', get_class($this));
-			Core::$classname = array_pop($class);
-
 			if($column && $value) {
 				$pdo = &Core::$pdo;
 
-				$pdo_statement = $pdo->prepare("SELECT * FROM " . Core::$classname . " WHERE {$column} = ?;");
+				$pdo_statement = $pdo->prepare("SELECT * FROM " . $this->getTable() . " WHERE {$column} = ?;");
 				$pdo_statement->bindValue(1, $value);
 				$pdo_statement->execute();
 
@@ -108,12 +113,49 @@
 
 			$sql_columns = implode(', ', array_keys($columns));
 			$sql_parameters = ':' . implode(', :', array_keys($columns));
-			$pdo_statement = $pdo->prepare("REPLACE INTO " . Core::$classname . " ({$sql_columns}) VALUES ({$sql_parameters});");
+			$pdo_statement = $pdo->prepare("REPLACE INTO " . $this->getTable() . " ({$sql_columns}) VALUES ({$sql_parameters});");
 			foreach($columns as $column => $value) {
 				$pdo_statement->bindValue(":{$column}", $value);
 			}
 
-			return $pdo_statement->execute() ? true : false;
+			if( !$pdo_statement->execute() ) {
+				$pdo_error = $pdo_statement->errorInfo();
+				throw new Exception($pdo_error[2]);
+			}
+			
+			return true;
+		}
+		
+		public function del($column) {
+			$pdo = &Core::$pdo;
+			
+			$pdo_statement = $pdo->prepare("DELETE FROM " . $this->getTable() . " WHERE {$column} = ?;");
+			$pdo_statement->bindValue(1, $this->$column);
+
+			if( !$pdo_statement->execute() ) {
+				$pdo_error = $pdo_statement->errorInfo();
+				throw new Exception($pdo_error[2]);
+			}
+			
+			return true;
+		}
+		
+		public function find($column, $value) {
+			$pdo = &Core::$pdo;
+			
+			$pdo_statement = $pdo->prepare("SELECT * FROM " . $this->getTable() . " WHERE {$column} = ?;");
+			$pdo_statement->bindValue(1, $value);
+			$pdo_statement->execute();
+			
+			return $pdo_statement->fetchAll(PDO::FETCH_ASSOC);
+		}
+		
+		public function findAll() {
+			$pdo = &Core::$pdo;
+			
+			$pdo_result = $pdo->query("SELECT * FROM " . $this->getTable() . ";");
+			
+			return $pdo_result->fetchAll(PDO::FETCH_ASSOC);
 		}
 
 	}
